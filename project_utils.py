@@ -45,7 +45,7 @@ class FeatureEngineer:
             for field1, field2 in field_pairs:
                 method = getattr(self, feature, None)
                 if method:
-                    df_new[f"{feature}_{field1}_{field2}"] = method(field1, field2)
+                    df_new[f"{feature}-{field1}xx{field2}"] = method(field1, field2)
                 else:
                     raise ValueError(f"Feature method '{feature}' not found in FeatureEngineer.")
         #attach index, score and main_metric
