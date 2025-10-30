@@ -1,33 +1,34 @@
-# environment.yml
+# A stable environment for ML, PyTorch, and Sentence-Transformers
 name: ml_env
 channels:
+  - pytorch
+  - nvidia     # For the CUDA toolkit
+  - conda-forge
   - defaults
-  - pytorch  # Adding the PyTorch channel
-  - conda-forge # A popular community channel
 dependencies:
-  # == Conda Packages ==
+  # --- Core & Stable Python ---
+  # This is the main fix for your 'gemma3_text' error
+  - python=3.10
   - pip
-  - python=3.13
+
+  # --- Core Data Science Libs ---
   - numpy
   - pandas
   - scipy
   - scikit-learn
+  - jupyterlab
   - matplotlib
   - seaborn
-  - plotly
-  - jupyterlab
   - tqdm
-  - openpyxl
   - scikit-image
-  - pytorch 
-  - torchvision
-  - torchaudio
-  - xgboost
-  - lightgbm
-  
-  # == Pip Packages ==
-  # Use pip for packages not on conda or when you need a specific version
+
+  # --- Pip for specialized packages ---
+  # sentence-transformers is best installed via pip
   - pip:
+    - sentence-transformers
+    - transformers
+    - plotly
+    - xgboost
+    - lightgbm
     - catboost
     - shap
-
