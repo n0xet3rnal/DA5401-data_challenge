@@ -1,0 +1,33 @@
+# environment.yml
+name: ml_env
+channels:
+  - defaults
+  - pytorch  # Adding the PyTorch channel
+  - conda-forge # A popular community channel
+dependencies:
+  # == Conda Packages ==
+  - pip
+  - python=3.13
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - plotly
+  - jupyterlab
+  - tqdm
+  - openpyxl
+  - scikit-image
+  - pytorch 
+  - torchvision
+  - torchaudio
+  - xgboost
+  - lightgbm
+  
+  # == Pip Packages ==
+  # Use pip for packages not on conda or when you need a specific version
+  - pip:
+    - catboost
+    - shap
+
