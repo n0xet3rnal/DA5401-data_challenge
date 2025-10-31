@@ -71,9 +71,9 @@ class DataGenerator:
 
     def generate_splits(self):
         """
-        Generate train-test and cross-validation splits while maintaining per-metric proportions.
+        Generate test and cross-validation splits while maintaining per-metric proportions.
 
-        :return: A dictionary containing train-test and cross-validation splits
+        :return: A dictionary containing test data and cross-validation splits
         """
         # Split the data into train and test sets while stratifying by the metric column
         train_data, test_data = train_test_split(
@@ -91,7 +91,6 @@ class DataGenerator:
             cv_splits.append((train_split, val_split))
 
         return {
-            "train_data": train_data,
             "test_data": test_data,
             "cv_splits": cv_splits
         }
@@ -199,3 +198,10 @@ class Embedder:
         """
         self.modify_initial()
         self.embed_fields()
+
+
+def prepare_final(df):
+    y = df['score']
+    X = df.drop(['index','score','main_metric'], axis =1)
+
+    return X, y
