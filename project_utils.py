@@ -71,7 +71,9 @@ class FeatureEngineer:
             for field1, field2 in field_pairs:
                 method = getattr(self, feature, None)
                 if method:
+                    print(f'Creating feature: {feature}--{field1}-{field2}')
                     df_new[f"{feature}--{field1}-{field2}"] = method(field1, field2)
+                    print(f'Created feature: {feature}--{field1}-{field2}')
                 else:
                     raise ValueError(f"Feature method '{feature}' not found in FeatureEngineer.")
         #attach index, score and main_metric
