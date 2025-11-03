@@ -66,7 +66,7 @@ class FeatureEngineer:
         """
         Dynamically create features based on the configuration.
         """
-        df_new = pd.DataFrame()
+        feature_dict = {}  # Use a dictionary to collect all columns
         for feature, field_pairs in self.config.items():
             for field1, field2 in field_pairs:
                 method = getattr(self, feature, None)
@@ -76,16 +76,18 @@ class FeatureEngineer:
                     # Expand 2D array into multiple columns
                     if feature_matrix.ndim == 2:
                         for dim in range(feature_matrix.shape[1]):
-                            df_new[f"{feature}--{field1}-{field2}--dim{dim}"] = feature_matrix[:, dim]
+                            feature_dict[f"{feature}--{field1}-{field2}--dim{dim}"] = feature_matrix[:, dim]
                     else:
-                        df_new[f"{feature}--{field1}-{field2}"] = feature_matrix
+                        feature_dict[f"{feature}--{field1}-{field2}"] = feature_matrix
                     print(f'Created feature: {feature}--{field1}-{field2}')
                 else:
                     raise ValueError(f"Feature method '{feature}' not found in FeatureEngineer.")
-        # Attach index, score, and main_metric
-        df_new['index'] = self.df['index']
-        df_new['score'] = self.df['score']
-        df_new['main_metric'] = self.df['main_metric']
+        # Add index, score, and main_metric
+        feature_dict['index'] = self.df['index']
+        feature_dict['score'] = self.df['score']
+        feature_dict['main_metric'] = self.df['main_metric']
+        # Create the DataFrame at once
+        df_new = pd.DataFrame(feature_dict)
         return df_new
 
 class DataGenerator:
