@@ -262,6 +262,7 @@ def LBGMCrossValidate(dataset, fold_k, model_type='regressor', n_estimators=1000
  
     metrics = []
     device  = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"Using device: {device}")
 
     for fold in range(fold_k):
         print(f"--- FOLD {fold + 1}/{fold_k} ---")
