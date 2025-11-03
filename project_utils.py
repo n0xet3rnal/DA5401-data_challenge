@@ -8,7 +8,7 @@ import tempfile
 from tqdm import tqdm
 import torch
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics import mean_squared_error, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import root_mean_squared_error, accuracy_score, precision_score, recall_score, f1_score
 import lightgbm as lgb
 
 class FeatureEngineer:
@@ -117,7 +117,12 @@ class DataGenerator:
         train_data, test_data = train_test_split(
             self.df, test_size=self.test_fraction, stratify=self.df[self.metric_column], random_state=42
         )
-
+        if self.fold_k == 1:
+            return {
+                "test_data": test_data,
+                "train_data": train_data
+            }
+        
         # Initialize StratifiedKFold for cross-validation
         skf = StratifiedKFold(n_splits=self.fold_k, shuffle=True, random_state=42)
 
@@ -261,7 +266,7 @@ def LBGMCrossValidate(dataset, fold_k, model_type='regressor', n_estimators=1000
     """
  
     metrics = []
-    device  = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device  = 'cpu'
     print(f"Using device: {device}")
 
     for fold in range(fold_k):
@@ -297,13 +302,13 @@ def LBGMCrossValidate(dataset, fold_k, model_type='regressor', n_estimators=1000
             y_train,
             eval_set=[(X_val, y_val)],
             eval_metric=eval_metric,
-            callbacks=[lgb.early_stopping(100, verbose=False)]
+            callbacks=[lgb.early_stopping(10, verbose=True)]
         )
 
         # 4. Get predictions and calculate metrics
         preds = model.predict(X_val)
         if model_type == 'regressor':
-            fold_metric = mean_squared_error(y_val, preds, squared=False)  # RMSE
+            fold_metric = root_mean_squared_error(y_val, preds)  # RMSE
             print(f"Fold {fold + 1} RMSE: {fold_metric}")
         elif model_type == 'classifier':
             preds = (preds > 0.5).astype(int)  # Threshold for binary classification
