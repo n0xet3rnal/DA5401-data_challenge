@@ -72,11 +72,17 @@ class FeatureEngineer:
                 method = getattr(self, feature, None)
                 if method:
                     print(f'Creating feature: {feature}--{field1}-{field2}')
-                    df_new[f"{feature}--{field1}-{field2}"] = method(field1, field2)
+                    feature_matrix = method(field1, field2)
+                    # Expand 2D array into multiple columns
+                    if feature_matrix.ndim == 2:
+                        for dim in range(feature_matrix.shape[1]):
+                            df_new[f"{feature}--{field1}-{field2}--dim{dim}"] = feature_matrix[:, dim]
+                    else:
+                        df_new[f"{feature}--{field1}-{field2}"] = feature_matrix
                     print(f'Created feature: {feature}--{field1}-{field2}')
                 else:
                     raise ValueError(f"Feature method '{feature}' not found in FeatureEngineer.")
-        #attach index, score and main_metric
+        # Attach index, score, and main_metric
         df_new['index'] = self.df['index']
         df_new['score'] = self.df['score']
         df_new['main_metric'] = self.df['main_metric']
