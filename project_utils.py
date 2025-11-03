@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, train_test_split
+import lgbm as lgb
 import os
 import json
 import shutil
@@ -244,3 +245,93 @@ def prepare_final(df):
     X = df.drop(['index','score','main_metric'], axis =1)
 
     return X, y
+
+def LBGMCrossValidate(dataset, fold_k, model_type='regressor', n_estimators=1000, learning_rate=0.05, random_state=42):
+    """
+    Perform cross-validation using LightGBM.
+
+    :param dataset: Dictionary containing 'cv_splits' (list of train-validation splits)
+    :param fold_k: Number of folds for cross-validation
+    :param model_type: Type of model ('regressor' or 'classifier')
+    :param n_estimators: Number of estimators for LightGBM
+    :param learning_rate: Learning rate for LightGBM
+    :param random_state: Random state for reproducibility
+    :return: Dictionary containing average metrics and per-fold metrics
+    """
+    from sklearn.metrics import mean_squared_error, accuracy_score, precision_score, recall_score, f1_score
+    import numpy as np
+    import lightgbm as lgb
+
+    metrics = []
+
+    for fold in range(fold_k):
+        print(f"--- FOLD {fold + 1}/{fold_k} ---")
+
+        # 1. Create the training and validation sets for this fold
+        X_train, y_train = prepare_final(dataset['cv_splits'][fold][0])
+        X_val, y_val = prepare_final(dataset['cv_splits'][fold][1])
+
+        # 2. Initialize the model
+        if model_type == 'regressor':
+            model = lgb.LGBMRegressor(
+                n_estimators=n_estimators,
+                learning_rate=learning_rate,
+                random_state=random_state
+            )
+            eval_metric = 'rmse'
+        elif model_type == 'classifier':
+            model = lgb.LGBMClassifier(
+                n_estimators=n_estimators,
+                learning_rate=learning_rate,
+                random_state=random_state
+            )
+            eval_metric = 'logloss'
+        else:
+            raise ValueError("Invalid model_type. Choose 'regressor' or 'classifier'.")
+
+        # 3. Train the model
+        model.fit(
+            X_train,
+            y_train,
+            eval_set=[(X_val, y_val)],
+            eval_metric=eval_metric,
+            callbacks=[lgb.early_stopping(100, verbose=False)]
+        )
+
+        # 4. Get predictions and calculate metrics
+        preds = model.predict(X_val)
+        if model_type == 'regressor':
+            fold_metric = mean_squared_error(y_val, preds, squared=False)  # RMSE
+            print(f"Fold {fold + 1} RMSE: {fold_metric}")
+        elif model_type == 'classifier':
+            preds = (preds > 0.5).astype(int)  # Threshold for binary classification
+            fold_metric = {
+                "accuracy": accuracy_score(y_val, preds),
+                "precision": precision_score(y_val, preds, average='weighted', zero_division=0),
+                "recall": recall_score(y_val, preds, average='weighted', zero_division=0),
+                "f1": f1_score(y_val, preds, average='weighted', zero_division=0)
+            }
+            print(f"Fold {fold + 1} Metrics: {fold_metric}")
+
+        metrics.append(fold_metric)
+
+    # 5. Calculate average metrics
+    if model_type == 'regressor':
+        avg_metric = np.mean(metrics)
+        print("\n--- Cross-Validation Summary ---")
+        print(f"All RMSE Scores: {metrics}")
+        print(f"Average RMSE: {avg_metric}")
+        return {"average_rmse": avg_metric, "fold_metrics": metrics}
+    elif model_type == 'classifier':
+        avg_metrics = {
+            "accuracy": np.mean([m["accuracy"] for m in metrics]),
+            "precision": np.mean([m["precision"] for m in metrics]),
+            "recall": np.mean([m["recall"] for m in metrics]),
+            "f1": np.mean([m["f1"] for m in metrics])
+        }
+        print("\n--- Cross-Validation Summary ---")
+        print(f"Average Metrics: {avg_metrics}")
+        return {"average_metrics": avg_metrics, "fold_metrics": metrics}
+
+
+
