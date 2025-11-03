@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, train_test_split
-import lgbm as lgb
 import os
 import json
 import shutil
@@ -9,6 +8,8 @@ import tempfile
 from tqdm import tqdm
 import torch
 from sentence_transformers import SentenceTransformer
+from sklearn.metrics import mean_squared_error, accuracy_score, precision_score, recall_score, f1_score
+import lightgbm as lgb
 
 class FeatureEngineer:
     def __init__(self, df, config):
@@ -258,11 +259,9 @@ def LBGMCrossValidate(dataset, fold_k, model_type='regressor', n_estimators=1000
     :param random_state: Random state for reproducibility
     :return: Dictionary containing average metrics and per-fold metrics
     """
-    from sklearn.metrics import mean_squared_error, accuracy_score, precision_score, recall_score, f1_score
-    import numpy as np
-    import lightgbm as lgb
-
+ 
     metrics = []
+    device  = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     for fold in range(fold_k):
         print(f"--- FOLD {fold + 1}/{fold_k} ---")
@@ -276,14 +275,16 @@ def LBGMCrossValidate(dataset, fold_k, model_type='regressor', n_estimators=1000
             model = lgb.LGBMRegressor(
                 n_estimators=n_estimators,
                 learning_rate=learning_rate,
-                random_state=random_state
+                random_state=random_state,
+                device=device
             )
             eval_metric = 'rmse'
         elif model_type == 'classifier':
             model = lgb.LGBMClassifier(
                 n_estimators=n_estimators,
                 learning_rate=learning_rate,
-                random_state=random_state
+                random_state=random_state,
+                device=device
             )
             eval_metric = 'logloss'
         else:
