@@ -25,10 +25,36 @@ class FeatureEngineer:
 
 
     def euclidean_distances(self, field1, field2):
-        return np.sqrt(np.sum((np.stack(self.df[field1].values) - np.stack(self.df[field2].values)) ** 2, axis=1))
+        """
+        Compute the Euclidean distance between two vector fields.
+        Ensure proper broadcasting for 2D arrays.
+        """
+        field1_values = np.stack(self.df[field1].values)
+        field2_values = np.stack(self.df[field2].values)
+        
+        # Ensure both fields are 2D arrays
+        if field1_values.ndim == 1:
+            field1_values = field1_values[:, np.newaxis]
+        if field2_values.ndim == 1:
+            field2_values = field2_values[:, np.newaxis]
+        
+        return np.sqrt(np.sum((field1_values - field2_values) ** 2, axis=1))
 
     def difference_vectors(self, field1, field2):
-        return np.stack((self.df[field1].values) - np.stack(self.df[field2].values))
+        """
+        Compute the difference between two vector fields.
+        Ensure proper broadcasting for 2D arrays.
+        """
+        field1_values = np.stack(self.df[field1].values)
+        field2_values = np.stack(self.df[field2].values)
+        
+        # Ensure both fields are 2D arrays
+        if field1_values.ndim == 1:
+            field1_values = field1_values[:, np.newaxis]
+        if field2_values.ndim == 1:
+            field2_values = field2_values[:, np.newaxis]
+        
+        return field1_values - field2_values
 
     def inner_product(self, field1, field2):
         return np.dot(np.stack(self.df[field1].values), np.stack(self.df[field2].values))
