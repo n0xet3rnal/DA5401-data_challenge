@@ -26,7 +26,7 @@ class FeatureEngineer:
         return self.df(field)
 
 
-    def euclidean_distances(self, field1, field2):
+    def euclidean_distance(self, field1, field2):
         """
         Compute the Euclidean distance between two vector fields.
         Ensure proper broadcasting for 2D arrays.
@@ -42,7 +42,7 @@ class FeatureEngineer:
         
         return np.sqrt(np.sum((field1_values - field2_values) ** 2, axis=1))
 
-    def difference_vectors(self, field1, field2):
+    def difference_vector(self, field1, field2):
         """
         Compute the difference between two vector fields.
         Ensure proper broadcasting for 2D arrays.
@@ -59,35 +59,102 @@ class FeatureEngineer:
         return field1_values - field2_values
 
     def inner_product(self, field1, field2):
-        return np.dot(np.stack(self.df[field1].values), np.stack(self.df[field2].values))
+        """
+        Compute the row-wise inner product between two vector fields.
+        """
+        field1_values = np.stack(self.df[field1].values)
+        field2_values = np.stack(self.df[field2].values)
 
-    def vector_product(self, field1, field2):
-        return np.cross(np.stack(self.df[field1].values), np.stack(self.df[field2].values))
+        # Compute the row-wise dot product
+        return np.einsum('ij,ij->i', field1_values, field2_values)
+
+    def manhattan_distance(self, field1, field2):
+        """
+        Compute the Manhattan distance (L1 norm) between two vector fields.
+        """
+        field1_values = np.stack(self.df[field1].values)
+        field2_values = np.stack(self.df[field2].values)
+
+        # Ensure both fields are 2D arrays
+        if field1_values.ndim == 1:
+            field1_values = field1_values[:, np.newaxis]
+        if field2_values.ndim == 1:
+            field2_values = field2_values[:, np.newaxis]
+
+        return np.sum(np.abs(field1_values - field2_values), axis=1)
+
+    def cosine_similarity(self, field1, field2):
+        """
+        Compute the cosine similarity between two vector fields.
+        """
+        field1_values = np.stack(self.df[field1].values)
+        field2_values = np.stack(self.df[field2].values)
+
+        # Ensure both fields are 2D arrays
+        if field1_values.ndim == 1:
+            field1_values = field1_values[:, np.newaxis]
+        if field2_values.ndim == 1:
+            field2_values = field2_values[:, np.newaxis]
+
+        dot_product = np.einsum('ij,ij->i', field1_values, field2_values)
+        norm1 = np.linalg.norm(field1_values, axis=1)
+        norm2 = np.linalg.norm(field2_values, axis=1)
+
+        return dot_product / (norm1 * norm2 + 1e-8)  # Add epsilon to avoid division by zero
+
+    def elementwise_product(self, field1, field2):
+        """
+        Compute the element-wise product (agreement vector) between two vector fields.
+        """
+        field1_values = np.stack(self.df[field1].values)
+        field2_values = np.stack(self.df[field2].values)
+
+        # Ensure both fields are 2D arrays
+        if field1_values.ndim == 1:
+            field1_values = field1_values[:, np.newaxis]
+        if field2_values.ndim == 1:
+            field2_values = field2_values[:, np.newaxis]
+
+        return field1_values * field2_values
 
     def create_features(self):
         """
-        Dynamically create features based on the configuration.
+        Dynamically create features based on the configuration, including self-features.
         """
         feature_dict = {}  # Use a dictionary to collect all columns
         for feature, field_pairs in self.config.items():
-            for field1, field2 in field_pairs:
-                method = getattr(self, feature, None)
-                if method:
-                    print(f'Creating feature: {feature}--{field1}-{field2}')
-                    feature_matrix = method(field1, field2)
-                    # Expand 2D array into multiple columns
-                    if feature_matrix.ndim == 2:
-                        for dim in range(feature_matrix.shape[1]):
-                            feature_dict[f"{feature}--{field1}-{field2}--dim{dim}"] = feature_matrix[:, dim]
+            if feature == "original_features":
+                # Handle original features dynamically
+                for field in self.df.columns:
+                    print(f'Adding original feature: {field}')
+                    field_values = self.df[field].values
+                    if field_values.ndim == 1:
+                        feature_dict[f"{feature}--{field}--dim0"] = field_values
                     else:
-                        feature_dict[f"{feature}--{field1}-{field2}"] = feature_matrix
-                    print(f'Created feature: {feature}--{field1}-{field2}')
-                else:
-                    raise ValueError(f"Feature method '{feature}' not found in FeatureEngineer.")
+                        for dim in range(field_values.shape[1]):
+                            feature_dict[f"{feature}--{field}--dim{dim}"] = field_values[:, dim]
+                    print(f'Added original feature: {field}')
+            else:
+                for field1, field2 in field_pairs:
+                    method = getattr(self, feature, None)
+                    if method:
+                        print(f'Creating feature: {feature}--{field1}-{field2}')
+                        feature_matrix = method(field1, field2)
+                        # Expand 2D array into multiple columns
+                        if feature_matrix.ndim == 2:
+                            for dim in range(feature_matrix.shape[1]):
+                                feature_dict[f"{feature}--{field1}-{field2}--dim{dim}"] = feature_matrix[:, dim]
+                        else:
+                            feature_dict[f"{feature}--{field1}-{field2}"] = feature_matrix
+                        print(f'Created feature: {feature}--{field1}-{field2}')
+                    else:
+                        raise ValueError(f"Feature method '{feature}' not found in FeatureEngineer.")
+
         # Add index, score, and main_metric
         feature_dict['index'] = self.df['index']
         feature_dict['score'] = self.df['score']
         feature_dict['main_metric'] = self.df['main_metric']
+
         # Create the DataFrame at once
         df_new = pd.DataFrame(feature_dict)
         return df_new
@@ -113,6 +180,14 @@ class DataGenerator:
 
         :return: A dictionary containing test data and cross-validation splits
         """
+        # Check for unique values in the metric column
+        value_counts = self.df[self.metric_column].value_counts()
+        singular_values = value_counts[value_counts == 1].index.tolist()
+
+        if singular_values:
+            print(f"Dropping rows with singular values in '{self.metric_column}': {singular_values}")
+            self.df = self.df[~self.df[self.metric_column].isin(singular_values)]
+
         # Split the data into train and test sets while stratifying by the metric column
         train_data, test_data = train_test_split(
             self.df, test_size=self.test_fraction, stratify=self.df[self.metric_column], random_state=42
@@ -122,7 +197,7 @@ class DataGenerator:
                 "test_data": test_data,
                 "train_data": train_data
             }
-        
+
         # Initialize StratifiedKFold for cross-validation
         skf = StratifiedKFold(n_splits=self.fold_k, shuffle=True, random_state=42)
 
@@ -364,11 +439,11 @@ def train_neural_network(model, train_data, test_data, learning_rate=0.01, epoch
     X_train, y_train = prepare_final(train_data)
     X_test, y_test = prepare_final(test_data)
 
-    # Convert data to tensors and move to device
-    X_train_tensor = torch.tensor(X_train.values).to(device)
-    y_train_tensor = torch.tensor(y_train.values).to(device)
-    X_test_tensor = torch.tensor(X_test.values).to(device)
-    y_test_tensor = torch.tensor(y_test.values).to(device)
+    # Convert data to tensors, cast to Float, and move to device
+    X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32).to(device)
+    y_train_tensor = torch.tensor(y_train.values, dtype=torch.long).to(device)
+    X_test_tensor = torch.tensor(X_test.values, dtype=torch.float32).to(device)
+    y_test_tensor = torch.tensor(y_test.values, dtype=torch.long).to(device)
 
     # Create DataLoader for batching
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
@@ -407,14 +482,13 @@ def train_neural_network(model, train_data, test_data, learning_rate=0.01, epoch
     # Evaluation
     model.eval()
     with torch.no_grad():
+        #print train and test accuracy
+        train_predictions = model(X_train_tensor).argmax(dim=1)
+        train_accuracy = (train_predictions == y_train_tensor).float().mean().item()
+        print(f"Train Accuracy: {train_accuracy * 100:.2f}%")
 
-        #print model accuracy on training and testing data
-        predictions_train = model(X_train_tensor).argmax(dim=1)
-        accuracy_train = (predictions_train == y_train_tensor).float().mean().item()
-        print(f"Train Accuracy: {accuracy_train * 100:.2f}%")
-
-        predictions_test = model(X_test_tensor).argmax(dim=1)
-        accuracy_test = (predictions_test == y_test_tensor).float().mean().item()
-        print(f"Test Accuracy: {accuracy_test * 100:.2f}%")
+        predictions = model(X_test_tensor).argmax(dim=1)
+        accuracy = (predictions == y_test_tensor).float().mean().item()
+        print(f"Test Accuracy: {accuracy * 100:.2f}%")
 
     return model
