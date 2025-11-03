@@ -340,5 +340,81 @@ def LBGMCrossValidate(dataset, fold_k, model_type='regressor', n_estimators=1000
         print(f"Average Metrics: {avg_metrics}")
         return {"average_metrics": avg_metrics, "fold_metrics": metrics}
 
+def train_neural_network(model, train_data, test_data, learning_rate=0.01, epochs=20, batch_size=32):
+    """
+    Train and evaluate a neural network model.
 
+    :param model: PyTorch model to train
+    :param train_data: Tuple (X_train, y_train) with training features and labels
+    :param test_data: Tuple (X_test, y_test) with testing features and labels
+    :param learning_rate: Learning rate for the optimizer
+    :param epochs: Number of training epochs
+    :param batch_size: Batch size for training
+    :return: Trained model and evaluation metrics
+    """
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, TensorDataset
 
+    # Check for GPU availability
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
+    # Unpack training and testing data
+    X_train, y_train = prepare_final(train_data)
+    X_test, y_test = prepare_final(test_data)
+
+    # Convert data to tensors and move to device
+    X_train_tensor = torch.tensor(X_train.values).to(device)
+    y_train_tensor = torch.tensor(y_train.values).to(device)
+    X_test_tensor = torch.tensor(X_test.values).to(device)
+    y_test_tensor = torch.tensor(y_test.values).to(device)
+
+    # Create DataLoader for batching
+    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+    # Move model to device
+    model = model.to(device)
+
+    # Define loss function and optimizer
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    # Training loop
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
+        for batch_X, batch_y in train_dataloader:
+            # Zero the gradients
+            optimizer.zero_grad()
+
+            # Forward pass
+            outputs = model(batch_X)
+
+            # Compute the loss
+            loss = criterion(outputs, batch_y)
+
+            # Backward pass and optimization
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+
+        # Print epoch loss
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(train_dataloader):.4f}")
+
+    # Evaluation
+    model.eval()
+    with torch.no_grad():
+
+        #print model accuracy on training and testing data
+        predictions_train = model(X_train_tensor).argmax(dim=1)
+        accuracy_train = (predictions_train == y_train_tensor).float().mean().item()
+        print(f"Train Accuracy: {accuracy_train * 100:.2f}%")
+
+        predictions_test = model(X_test_tensor).argmax(dim=1)
+        accuracy_test = (predictions_test == y_test_tensor).float().mean().item()
+        print(f"Test Accuracy: {accuracy_test * 100:.2f}%")
+
+    return model
