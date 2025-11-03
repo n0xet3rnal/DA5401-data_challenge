@@ -28,7 +28,7 @@ class FeatureEngineer:
         return np.sqrt(np.sum((np.stack(self.df[field1].values) - np.stack(self.df[field2].values)) ** 2, axis=1))
 
     def difference_vectors(self, field1, field2):
-        return np.stack(self.df[field1].values - np.stack(self.df[field2].values))
+        return np.stack((self.df[field1].values) - np.stack(self.df[field2].values))
 
     def inner_product(self, field1, field2):
         return np.dot(np.stack(self.df[field1].values), np.stack(self.df[field2].values))
@@ -116,6 +116,7 @@ class Embedder:
         """
         Add indices and the main metric field to each entry in the JSON file.
         """
+
         with open(self.data_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
@@ -130,7 +131,9 @@ class Embedder:
                 # Add main metric
                 metric_name = entry.get('metric_name', '')
                 entry['main_metric'] = metric_name.split('/')[0] if metric_name else ''
-
+                
+        #drop index 3766
+        data = [entry for entry in data if entry.get('index') != 3766]
         # Write back to the file atomically
         dirpath = os.path.dirname(self.data_file) or '.'
         temp_fp = None
