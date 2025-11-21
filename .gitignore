@@ -3,3 +3,7 @@ data/
 huggingface_token.txt
 
 __pycache__/
+
+images/
+
+

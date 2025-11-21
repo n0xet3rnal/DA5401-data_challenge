@@ -214,25 +214,27 @@ class DataGenerator:
         }
     
 class Embedder:
-    def __init__(self, data_file, output_file, chunk_size=500, batch_size=16):
+    def __init__(self, data_file, output_file, chunk_size=500, batch_size=8, is_test=False):
         """
         Initialize the Embedder class.
 
-        :param data_file: Path to the input JSON file (train_data.json)
+        :param data_file: Path to the input JSON file (train_data.json or test_data.json)
         :param output_file: Path to the output JSON file
         :param chunk_size: Number of entries to process per chunk
         :param batch_size: Batch size for embedding
+        :param is_test: Whether this is test data (no score field expected)
         """
         self.data_file = data_file
         self.output_file = output_file
         self.chunk_size = chunk_size
         self.batch_size = batch_size
+        self.is_test = is_test
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model = SentenceTransformer("google/embeddinggemma-300m", device=self.device, trust_remote_code=True)
 
     def modify_initial(self):
         """
-        Add indices and the main metric field to each entry in the JSON file.
+        Add indices, main metric field, and metric ID to each entry in the JSON file.
         """
 
         with open(self.data_file, 'r', encoding='utf-8') as f:
@@ -241,6 +243,34 @@ class Embedder:
         if not isinstance(data, list):
             raise ValueError("Expected JSON file to contain a list of entries")
 
+        # For test mode, try to load existing metric mapping from training
+        if self.is_test:
+            # Try to find existing metric mapping from training data
+            train_mapping_file = '/home/jerryjose/DA5401/DA5401-data_challenge/data/train_data_metric_mapping.json'
+            if os.path.exists(train_mapping_file):
+                with open(train_mapping_file, 'r', encoding='utf-8') as f:
+                    metric_to_id = json.load(f)
+                print(f"Loaded existing metric mapping from: {train_mapping_file}")
+            else:
+                # Fallback: create mapping from test data
+                unique_metrics = sorted(list(set(entry.get('metric_name', '') for entry in data if isinstance(entry, dict))))
+                metric_to_id = {metric: idx for idx, metric in enumerate(unique_metrics)}
+                print("Created new metric mapping from test data (no training mapping found)")
+        else:
+            # Training mode: create new mapping
+            unique_metrics = sorted(list(set(entry.get('metric_name', '') for entry in data if isinstance(entry, dict))))
+            metric_to_id = {metric: idx for idx, metric in enumerate(unique_metrics)}
+            
+            # Save the mapping for reference
+            mapping_file = self.data_file.replace('.json', '_metric_mapping.json')
+            with open(mapping_file, 'w', encoding='utf-8') as f:
+                json.dump(metric_to_id, f, ensure_ascii=False, indent=2)
+            print(f"Metric ID mapping saved to: {mapping_file}")
+
+        # Only drop index 3766 for training data (this is a known bad training sample)
+        if not self.is_test:
+            data = [entry for i, entry in enumerate(data) if i != 3766]
+        
         for i, entry in enumerate(data):
             if isinstance(entry, dict):
                 # Add index
@@ -250,8 +280,9 @@ class Embedder:
                 metric_name = entry.get('metric_name', '')
                 entry['main_metric'] = metric_name.split('/')[0] if metric_name else ''
                 
-        #drop index 3766
-        data = [entry for entry in data if entry.get('index') != 3766]
+                # Add metric ID
+                entry['metric_id'] = metric_to_id.get(metric_name, -1)
+        
         # Write back to the file atomically
         dirpath = os.path.dirname(self.data_file) or '.'
         temp_fp = None
@@ -283,31 +314,54 @@ class Embedder:
                 user_prompts = [entry['user_prompt'] for entry in chunk]
                 responses = [entry['response'] for entry in chunk]
                 system_prompts = [entry['system_prompt'] if entry['system_prompt'] else '' for entry in chunk]
-                scores = [float(entry['score']) for entry in chunk]
                 index = [int(entry['index']) for entry in chunk]
                 main_metrics = [entry['main_metric'] for entry in chunk]
+                metric_ids = [int(entry['metric_id']) for entry in chunk]
+                
+                # Handle scores - only extract if not test mode
+                if not self.is_test:
+                    scores = [float(entry['score']) for entry in chunk]
 
                 # Batch encode fields
                 metric_name_embeddings = self.model.encode(metric_names, batch_size=self.batch_size, show_progress_bar=False)
                 user_prompt_embeddings = self.model.encode(user_prompts, batch_size=self.batch_size, show_progress_bar=False)
                 response_embeddings = self.model.encode(responses, batch_size=self.batch_size, show_progress_bar=False)
                 system_prompt_embeddings = self.model.encode(system_prompts, batch_size=self.batch_size, show_progress_bar=False)
-
-                # Combine embeddings and scores into a chunk of data
-                transformed_chunk = [
-                    {
-                        'index': idx,
-                        'metric_name': metric.tolist(),
-                        'user_prompt': user.tolist(),
-                        'response': resp.tolist(),
-                        'system_prompt': sys.tolist(),
-                        'score': score,
-                        'main_metric': main_metric
-                    }
-                    for idx, metric, user, resp, sys, score, main_metric in zip(
-                        index, metric_name_embeddings, user_prompt_embeddings, response_embeddings, system_prompt_embeddings, scores, main_metrics
-                    )
-                ]
+                
+                # Create transformed chunk based on mode
+                if self.is_test:
+                    # Test mode - no score field
+                    transformed_chunk = [
+                        {
+                            'index': idx,
+                            'metric_name': metric.tolist(),
+                            'user_prompt': user.tolist(),
+                            'response': resp.tolist(),
+                            'system_prompt': sys.tolist(),
+                            'main_metric': main_metric,
+                            'metric_id': metric_id
+                        }
+                        for idx, metric, user, resp, sys, main_metric, metric_id in zip(
+                            index, metric_name_embeddings, user_prompt_embeddings, response_embeddings, system_prompt_embeddings, main_metrics, metric_ids
+                        )
+                    ]
+                else:
+                    # Training mode - include score field
+                    transformed_chunk = [
+                        {
+                            'index': idx,
+                            'metric_name': metric.tolist(),
+                            'user_prompt': user.tolist(),
+                            'response': resp.tolist(),
+                            'system_prompt': sys.tolist(),
+                            'score': score,
+                            'main_metric': main_metric,
+                            'metric_id': metric_id
+                        }
+                        for idx, metric, user, resp, sys, score, main_metric, metric_id in zip(
+                            index, metric_name_embeddings, user_prompt_embeddings, response_embeddings, system_prompt_embeddings, scores, main_metrics, metric_ids
+                        )
+                    ]
 
                 # Write the chunk to the output file
                 for entry in transformed_chunk:
@@ -327,168 +381,3 @@ def prepare_final(df):
 
     return X, y
 
-def LBGMCrossValidate(dataset, fold_k, model_type='regressor', n_estimators=1000, learning_rate=0.05, random_state=42):
-    """
-    Perform cross-validation using LightGBM.
-
-    :param dataset: Dictionary containing 'cv_splits' (list of train-validation splits)
-    :param fold_k: Number of folds for cross-validation
-    :param model_type: Type of model ('regressor' or 'classifier')
-    :param n_estimators: Number of estimators for LightGBM
-    :param learning_rate: Learning rate for LightGBM
-    :param random_state: Random state for reproducibility
-    :return: Dictionary containing average metrics and per-fold metrics
-    """
- 
-    metrics = []
-    device  = 'cpu'
-    print(f"Using device: {device}")
-
-    for fold in range(fold_k):
-        print(f"--- FOLD {fold + 1}/{fold_k} ---")
-
-        # 1. Create the training and validation sets for this fold
-        X_train, y_train = prepare_final(dataset['cv_splits'][fold][0])
-        X_val, y_val = prepare_final(dataset['cv_splits'][fold][1])
-
-        # 2. Initialize the model
-        if model_type == 'regressor':
-            model = lgb.LGBMRegressor(
-                n_estimators=n_estimators,
-                learning_rate=learning_rate,
-                random_state=random_state,
-                device=device
-            )
-            eval_metric = 'rmse'
-        elif model_type == 'classifier':
-            model = lgb.LGBMClassifier(
-                n_estimators=n_estimators,
-                learning_rate=learning_rate,
-                random_state=random_state,
-                device=device
-            )
-            eval_metric = 'logloss'
-        else:
-            raise ValueError("Invalid model_type. Choose 'regressor' or 'classifier'.")
-
-        # 3. Train the model
-        model.fit(
-            X_train,
-            y_train,
-            eval_set=[(X_val, y_val)],
-            eval_metric=eval_metric,
-            callbacks=[lgb.early_stopping(10, verbose=True)]
-        )
-
-        # 4. Get predictions and calculate metrics
-        preds = model.predict(X_val)
-        if model_type == 'regressor':
-            fold_metric = root_mean_squared_error(y_val, preds)  # RMSE
-            print(f"Fold {fold + 1} RMSE: {fold_metric}")
-        elif model_type == 'classifier':
-            preds = (preds > 0.5).astype(int)  # Threshold for binary classification
-            fold_metric = {
-                "accuracy": accuracy_score(y_val, preds),
-                "precision": precision_score(y_val, preds, average='weighted', zero_division=0),
-                "recall": recall_score(y_val, preds, average='weighted', zero_division=0),
-                "f1": f1_score(y_val, preds, average='weighted', zero_division=0)
-            }
-            print(f"Fold {fold + 1} Metrics: {fold_metric}")
-
-        metrics.append(fold_metric)
-
-    # 5. Calculate average metrics
-    if model_type == 'regressor':
-        avg_metric = np.mean(metrics)
-        print("\n--- Cross-Validation Summary ---")
-        print(f"All RMSE Scores: {metrics}")
-        print(f"Average RMSE: {avg_metric}")
-        return {"average_rmse": avg_metric, "fold_metrics": metrics}
-    elif model_type == 'classifier':
-        avg_metrics = {
-            "accuracy": np.mean([m["accuracy"] for m in metrics]),
-            "precision": np.mean([m["precision"] for m in metrics]),
-            "recall": np.mean([m["recall"] for m in metrics]),
-            "f1": np.mean([m["f1"] for m in metrics])
-        }
-        print("\n--- Cross-Validation Summary ---")
-        print(f"Average Metrics: {avg_metrics}")
-        return {"average_metrics": avg_metrics, "fold_metrics": metrics}
-
-def train_neural_network(model, train_data, test_data, learning_rate=0.01, epochs=20, batch_size=32):
-    """
-    Train and evaluate a neural network model.
-
-    :param model: PyTorch model to train
-    :param train_data: Tuple (X_train, y_train) with training features and labels
-    :param test_data: Tuple (X_test, y_test) with testing features and labels
-    :param learning_rate: Learning rate for the optimizer
-    :param epochs: Number of training epochs
-    :param batch_size: Batch size for training
-    :return: Trained model and evaluation metrics
-    """
-    import torch
-    import torch.nn as nn
-    from torch.utils.data import DataLoader, TensorDataset
-
-    # Check for GPU availability
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-
-    # Unpack training and testing data
-    X_train, y_train = prepare_final(train_data)
-    X_test, y_test = prepare_final(test_data)
-
-    # Convert data to tensors, cast to Float, and move to device
-    X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32).to(device)
-    y_train_tensor = torch.tensor(y_train.values, dtype=torch.long).to(device)
-    X_test_tensor = torch.tensor(X_test.values, dtype=torch.float32).to(device)
-    y_test_tensor = torch.tensor(y_test.values, dtype=torch.long).to(device)
-
-    # Create DataLoader for batching
-    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
-    # Move model to device
-    model = model.to(device)
-
-    # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Training loop
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        for batch_X, batch_y in train_dataloader:
-            # Zero the gradients
-            optimizer.zero_grad()
-
-            # Forward pass
-            outputs = model(batch_X)
-
-            # Compute the loss
-            loss = criterion(outputs, batch_y)
-
-            # Backward pass and optimization
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item()
-
-        # Print epoch loss
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(train_dataloader):.4f}")
-
-    # Evaluation
-    model.eval()
-    with torch.no_grad():
-        #print train and test accuracy
-        train_predictions = model(X_train_tensor).argmax(dim=1)
-        train_accuracy = (train_predictions == y_train_tensor).float().mean().item()
-        print(f"Train Accuracy: {train_accuracy * 100:.2f}%")
-
-        predictions = model(X_test_tensor).argmax(dim=1)
-        accuracy = (predictions == y_test_tensor).float().mean().item()
-        print(f"Test Accuracy: {accuracy * 100:.2f}%")
-
-    return model
